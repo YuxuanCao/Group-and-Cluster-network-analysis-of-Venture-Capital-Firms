@@ -1,0 +1,260 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+```{r}
+## prepare and require all packages needed
+rm(list = ls(all = TRUE))
+library(igraph)
+library(data.table)
+library(readxl)
+library(splitstackshape)
+library(stringr)
+library(plyr)
+```
+```{r warning=FALSE}
+## data preparation and cleaning
+# import data
+data1<-read.csv("E:/Fall term/Social Network Analysis/HW2/Funding_events_7.14.csv",header = TRUE)
+data2<-read_xlsx("E:/Fall term/Social Network Analysis/HW2/Funding_events_7.14_page2.xlsx")
+inv1<-data.frame(data1[,c(4,11)])
+inv2<-data.frame(data2[,c(4,11)])
+colnames(inv1)<-c("date","investors")
+colnames(inv2)<-c("date","investors")
+# combine all investors from two dataset (together with date, for Q2,Q3)
+inv<-rbind(inv1,inv2)
+inv<-inv[inv$investors!='',]
+inv<-unique(inv)
+# clean the data(found some wrong typing, delete them)
+inv$investors<-as.character(inv$investors)
+inv$investors<-gsub(', Inc.', '', inv$investors)
+inv$investors<-gsub(', LLC', '', inv$investors)
+inv$investors<-gsub(', Ltd.', '', inv$investors)
+inv$investors<-gsub(', lp', '', inv$investors)
+
+# split investor column
+inv<-concat.split(inv,sep=",",split.col = 'investors',drop = TRUE)
+# if investors_02 is 'NA', means only one investor in this row, so there is no relationship captured.
+inv<-inv[inv$investors_02!='<NA>',]
+## investors in the same row have relationships between each other
+edgelist<-data.frame(inv[,c(1,2,3)])
+colnames(edgelist)<-c("date","F1","F2")
+for (i in 2:26){
+  for(j in (i+1):27){
+    d<-data.frame(inv[,c(1,get('i'),get('j'))])
+    d<-na.omit(d)
+    colnames(d)<-c("date","F1","F2")
+    edgelist<-rbind(edgelist,d)
+  }
+}
+edgelist1<-unique(edgelist[,c(2,3)])
+# build network
+g_inv <- graph.data.frame(edgelist1, directed = FALSE)
+g_inv <- delete.edges(g_inv, E(g_inv)[get.edge.attribute(g_inv)==0])
+```
+```{r warning=FALSE}
+# Question 1
+##Q1---A
+close<-data.frame(closeness(g_inv))
+#head(closeness)
+max_closensess<-row.names(close)[which.max(close[,1])]
+print(paste("Center of network is",max_closensess))
+## Intel Capital is the center of network
+
+## Q1--B
+# calculate the average shortest path for each vertex in the network
+N <- gorder(g_inv)
+spathAvg <- lapply(V(g_inv),
+                   function(v){
+                     q <-   shortest.paths(g_inv, v)
+                     i<-which(q=='Inf')
+                     q[i]<-N
+                     rowSums(q,na.rm = TRUE)/N
+                   })
+which.min(spathAvg)
+###Verify that the firm with highness closeness has the least average shortest path, which is intel capital
+
+## Q1--C. Calculate the average shortest path for all firms.
+path<-mean_distance(g_inv,directed = FALSE,unconnected = FALSE)
+print(paste("average shortest path for all firms is",path))
+# The answer is 969.7391, which is high. I think it's because many pair of nodes are unreachable, which leads to many length of path is equal to total # of nodes.Thus the answer is high.
+```
+```{r}
+#Q2
+#A
+## give each tie(relationship) a month index according to their deal date
+edgelist<-na.omit(edgelist)
+edgelist<-concat.split(edgelist,sep="/",split.col = 'date',drop = TRUE)
+edgelist$month<-0
+mon<-0
+for(i in 1981:2014){
+  for(j in 1:12){
+    index<-which(edgelist$date_1==j&edgelist$date_3==i)
+    mon<-mon+1
+    if(length(index)!=0){
+    edgelist$month[index]<-rep(mon,length(index))
+      }
+  }
+}
+edgelist$month<-edgelist$month-5
+edgelist<-edgelist[,c(1,2,6)]
+#calculate the average coreness at the each time point--month  (still cumulative)
+avg_core<-data.frame(1:max(edgelist$month))
+colnames(avg_core)<-"month"
+avg_core$coreness<-0
+for(i in 1:max(edgelist$month)){
+  network<-edgelist[edgelist$month<=i,]
+  g<-graph.data.frame(network, directed = FALSE)
+  avg_core[i,2]<-mean(coreness(g))
+}
+plot(avg_core$month,avg_core$coreness,type='l')
+```
+
+```{r}
+##B
+## remove ties from the network if they are not renewed within 10 years
+## if a tie is renewed within 10 years, it would appear in the edge list once again after the first appearance. Thus,after 10 years(120 months), e.g.: in 121 month, only calculate the month2 to mongth121, if relationship in month 1 is renewed, it would apprear during month 2 to month 121. If it's not, we ignore them.
+avg_core_decay<-data.frame(1:max(edgelist$month))
+colnames(avg_core_decay)<-"month"
+avg_core_decay$coreness<-0
+for(i in 1:max(edgelist$month)){
+  if(i<=120){
+  network<-edgelist[edgelist$month<=i,]
+  g<-graph.data.frame(network, directed = FALSE)
+  avg_core_decay[i,2]<-mean(coreness(g))
+  }else{
+    network<-edgelist[edgelist$month<=i,]
+    network<-network[network$month>i-120,]
+    g<-graph.data.frame(network, directed = FALSE)
+    avg_core_decay[i,2]<-mean(coreness(g))
+  }
+}
+plot(avg_core_decay$month,avg_core_decay$coreness,type = 'l')
+## similar, not differ a lot
+## I think it may show that core relationships in the network are usually long-lasting. The plot shows that removing those relationships that were not renewed within 10 years doesn't affect the coreness situation of the entire network.
+```
+
+```{r}
+# Question 3
+## When many nodes are members of k-cores with high degrees, this suggests that there may exist dense clusters within the network. Thus, if as the time went by, the number of nodes which have high coreness is increasing,the recent network is exhibits more of a structure made up of distinctly clustered components.
+## first evidence
+# look at the number of nodes which have coreness more than average coreness of network,divided by total number of nodes in the network. if the rate is increasing, means exhibits more of a clustered structure.
+evidence1<-data.frame(1:max(edgelist$month))
+evidence1$rate<-0
+for(i in 1:max(edgelist$month)){
+  network<-edgelist[edgelist$month<=i,]
+  g<-graph.data.frame(network, directed = FALSE)
+  a<-coreness(g)
+  evidence1[i,2]<-length(a[a>mean(a)])/gorder(g)
+}
+plot(evidence1[,1],evidence1$rate,type='l')
+
+## it turns out that the rate in the recent is decreasing,so I think the recent network exhibits more of a core-periphery structure.
+
+```
+
+```{r}
+## evidence 2
+## 
+evidence2<-data.frame(1:max(edgelist$month))
+evidence2$median<-0
+for(i in 1:max(edgelist$month)){
+  network<-edgelist[edgelist$month<=i,]
+  g<-graph.data.frame(network, directed = FALSE)
+  a<-coreness(g)
+  evidence2[i,2]<-median(a)
+}
+plot(evidence2[,1],evidence2$median,type='l')
+##it turns out that median of coreness in the recent is also decreasing,so I think the recent network exhibits more of a core-periphery structure.
+
+```
+
+```{r warning=FALSE}
+#Question 4---A
+performance<-read.csv("E:/Fall term/Social Network Analysis/HW2/Venture_capital_firm_outcomes.csv",header = TRUE)
+success<-performance[,c(1,2,3)]
+colnames(close)<-"closeness"
+close$firm<-rownames(close)
+close[,3:36]<--1
+for(i in 1:nrow(success)){
+  j<-which(close$firm==success[i,1])
+  year<-success[i,2]-1981+3
+  close[j,get('year')]<-success[i,3]
+}
+
+corr<-data.frame(1981:2014)
+corr[,2]<-0
+for(i in 3:36){
+  a<-close[,c(1,i)]
+  a<-a[a[,2]!=-1,]
+  corr[i-2,2]<-cor(a[,1],a[,2])
+}
+mean(corr[,2],na.rm = TRUE)
+# average correlation is 0.0260
+## The yearly averge of correlation between closeness and successful investments is positive, but the absolute number is very small. The relationship is not very significant.
+
+## betweeness
+between<-data.frame(betweenness(g_inv))
+colnames(between)<-"betweenness"
+between$firm<-rownames(between)
+between[,3:36]<--1
+for(i in 1:nrow(success)){
+  j<-which(between$firm==success[i,1])
+  year<-success[i,2]-1981+3
+  between[j,get('year')]<-success[i,3]
+}
+
+corr_betw<-data.frame(1981:2014)
+corr_betw[,2]<-0
+for(i in 3:36){
+  a<-between[,c(1,i)]
+  a<-a[a[,2]!=-1,]
+ corr_betw[i-2,2]<-cor(a[,1],a[,2])
+}
+mean(corr_betw[,2],na.rm = TRUE)
+# average correlation is 0.4298
+## correlation shows that yes, a venture capital firm being at the center of the network related to having more successful investments in a given year, in terms of its betweenness centrality
+```
+```{r}
+#Question 4---B
+out<-performance[,c(1,2,4)]
+close1<-close[,c(1,2)]
+close1[,3:36]<--1
+for(i in 1:nrow(out)){
+  j<-which(close1$firm==out[i,1])
+  year<-out[i,2]-1981+3
+  close1[j,get('year')]<-out[i,3]
+}
+corr1<-data.frame(1981:2014)
+corr1[,2]<-0
+for(i in 3:36){
+  a<-close1[,c(1,i)]
+  a<-a[a[,2]!=-1,]
+  corr1[i-2,2]<-cor(a[,1],a[,2])
+}
+mean(corr1[,2],na.rm = TRUE)
+# average correlation is -0.26307
+## The yearly averge of correlation between closeness and successful investments is negative. I think Yes,a venture capital firm being at the center of the network is related to being less likely to go out of business.
+
+## betweeness
+out<-performance[,c(1,2,4)]
+between1<-between[,c(1,2)]
+between1[,3:36]<--1
+for(i in 1:nrow(out)){
+  j<-which(between1$firm==out[i,1])
+  year<-out[i,2]-1981+3
+  between1[j,get('year')]<-out[i,3]
+}
+
+corr_betw1<-data.frame(1981:2014)
+corr_betw1[,2]<-0
+for(i in 3:36){
+  a<-between1[,c(1,i)]
+  a<-a[a[,2]!=-1,]
+ corr_betw1[i-2,2]<-cor(a[,1],a[,2])
+}
+mean(corr_betw1[,2],na.rm = TRUE)
+# average correlation is -0.1534289
+## correlation shows that yes, a venture capital firm being at the center of the network related to being less likely to go out of business, in terms of its betweenness centrality
+```
+
