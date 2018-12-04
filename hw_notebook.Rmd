@@ -53,15 +53,15 @@ g_inv <- graph.data.frame(edgelist1, directed = FALSE)
 g_inv <- delete.edges(g_inv, E(g_inv)[get.edge.attribute(g_inv)==0])
 ```
 ```{r warning=FALSE}
-# Question 1
-##Q1---A
+# Question 1: Which company is the center of VC firms
+## Q1---A: find the center
 close<-data.frame(closeness(g_inv))
 #head(closeness)
 max_closensess<-row.names(close)[which.max(close[,1])]
 print(paste("Center of network is",max_closensess))
 ## Intel Capital is the center of network
 
-## Q1--B
+## Q1--B:find the firm with least average shortest path
 # calculate the average shortest path for each vertex in the network
 N <- gorder(g_inv)
 spathAvg <- lapply(V(g_inv),
@@ -81,7 +81,7 @@ print(paste("average shortest path for all firms is",path))
 ```
 ```{r}
 #Q2
-#A
+#A: coreness change over time
 ## give each tie(relationship) a month index according to their deal date
 edgelist<-na.omit(edgelist)
 edgelist<-concat.split(edgelist,sep="/",split.col = 'date',drop = TRUE)
@@ -111,7 +111,7 @@ plot(avg_core$month,avg_core$coreness,type='l')
 ```
 
 ```{r}
-##B
+##B: coreness change over time allowing ties to 'decay'
 ## remove ties from the network if they are not renewed within 10 years
 ## if a tie is renewed within 10 years, it would appear in the edge list once again after the first appearance. Thus,after 10 years(120 months), e.g.: in 121 month, only calculate the month2 to mongth121, if relationship in month 1 is renewed, it would apprear during month 2 to month 121. If it's not, we ignore them.
 avg_core_decay<-data.frame(1:max(edgelist$month))
@@ -135,7 +135,7 @@ plot(avg_core_decay$month,avg_core_decay$coreness,type = 'l')
 ```
 
 ```{r}
-# Question 3
+# Question 3: Is recent network more of a core-periphery structure or a structure made up of distinctly clustered components?
 ## When many nodes are members of k-cores with high degrees, this suggests that there may exist dense clusters within the network. Thus, if as the time went by, the number of nodes which have high coreness is increasing,the recent network is exhibits more of a structure made up of distinctly clustered components.
 ## first evidence
 # look at the number of nodes which have coreness more than average coreness of network,divided by total number of nodes in the network. if the rate is increasing, means exhibits more of a clustered structure.
@@ -170,7 +170,8 @@ plot(evidence2[,1],evidence2$median,type='l')
 ```
 
 ```{r warning=FALSE}
-#Question 4---A
+#Q4: whether being in the core of the network helps venture capital firms and the entrepreneurs they work with to perform better
+#Question 4---A: being center~ have more successful investments
 performance<-read.csv("E:/Fall term/Social Network Analysis/HW2/Venture_capital_firm_outcomes.csv",header = TRUE)
 success<-performance[,c(1,2,3)]
 colnames(close)<-"closeness"
@@ -216,7 +217,7 @@ mean(corr_betw[,2],na.rm = TRUE)
 ## correlation shows that yes, a venture capital firm being at the center of the network related to having more successful investments in a given year, in terms of its betweenness centrality
 ```
 ```{r}
-#Question 4---B
+#Question 4---B: being center~ less likely to go out of business
 out<-performance[,c(1,2,4)]
 close1<-close[,c(1,2)]
 close1[,3:36]<--1
